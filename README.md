@@ -41,7 +41,7 @@ make run
 All settings live in `.env` (never committed). `.env.example` lists every variable:
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `PORT` | Port the API listens on |
 | `GIN_MODE` | `debug` or `release` |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE` | PostgreSQL connection. Docker Compose and the Makefile read these too |
@@ -59,7 +59,7 @@ make docker-up
 ## Make commands
 
 | Command | What it does |
-|---|---|
+| --- | --- |
 | `make help` | List the commands |
 | `make build` | Compile to `bin/api.exe` |
 | `make run` | Build, then run the API |
@@ -72,8 +72,13 @@ make docker-up
 
 ## Project structure
 
-```
+```text
 cmd/api/          Application entry point
+internal/config/  Loads configuration from the environment
+internal/database/ PostgreSQL connection (GORM)
+internal/logger/  Application logging
+internal/models/  Database models: users, products, categories, carts, orders
+db/               Database migrations
 docker/           Docker Compose file for Postgres and LocalStack
 .env.example      Template for local configuration
 .golangci.yml     Linter configuration
