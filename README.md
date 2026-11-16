@@ -2,7 +2,14 @@
 
 A REST API for an e-commerce shop, written in Go. It uses PostgreSQL for data and S3 (LocalStack in development) for file uploads.
 
-> Work in progress: the API currently starts and prints a message; endpoints are being built.
+> Work in progress, built in stages. Stage 1 (database schema and migrations) is done; the API currently connects to the database and exits. See the [learning path](docs/learn/README.md) for the stages and a lesson on each.
+
+## Design highlights
+
+- **Money is stored as integer cents** (`price_cents BIGINT`), never floats, so totals are always exact.
+- **The database enforces the business rules**: stock can't go negative, emails are unique, order statuses are a fixed set.
+- **Order items snapshot the name and price at checkout**, so later product edits never change past orders.
+- **The schema is managed by versioned SQL migrations**, not generated from structs at runtime.
 
 ## Tech stack
 
@@ -31,6 +38,9 @@ cp .env.example .env
 
 # Start Postgres and LocalStack
 make docker-up
+
+# Create the database tables
+make migrate-up
 
 # Build and run the API
 make run
@@ -67,20 +77,23 @@ make docker-up
 | `make lint` | Run golangci-lint on all packages |
 | `make docker-up` | Start Postgres and LocalStack |
 | `make docker-down` | Stop the containers |
-| `make migrate-up` | Apply database migrations |
-| `make migrate-down` | Roll back migrations |
+| `make migrate-up` | Apply all pending migrations |
+| `make migrate-down` | Roll back the most recent migration |
+| `make migrate-version` | Show which migration the database is on |
+| `make migrate-create name=NAME` | Create a new numbered pair of migration files |
 
 ## Project structure
 
 ```text
-cmd/api/          Application entry point
-internal/config/  Loads configuration from the environment
-internal/database/ PostgreSQL connection (GORM)
-internal/logger/  Application logging
-internal/models/  Database models: users, products, categories, carts, orders
-db/               Database migrations
-docker/           Docker Compose file for Postgres and LocalStack
-.env.example      Template for local configuration
-.golangci.yml     Linter configuration
-Makefile          Build, run, lint, Docker and migration commands
+cmd/api/            Application entry point
+internal/config/    Loads configuration from the environment
+internal/database/  PostgreSQL connection and pool (GORM)
+internal/logger/    Application logging
+internal/models/    Go structs that mirror the database tables
+db/migrations/      Numbered SQL migrations that define the schema
+docker/             Docker Compose file for Postgres and LocalStack
+docs/learn/         Stage-by-stage lessons explaining how it's built
+.env.example        Template for local configuration
+.golangci.yml       Linter configuration
+Makefile            Build, run, lint, Docker and migration commands
 ```

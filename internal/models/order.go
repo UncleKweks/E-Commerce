@@ -1,81 +1,70 @@
-// Package models defines the database tables as GORM structs.
+// Package models defines Go structs that map to the database tables.
+// The tables themselves are defined by the SQL files in db/migrations.
 package models
 
 import (
 	"time"
-
-	"gorm.io/gorm"
 )
 
-// Order is a customer's placed order.
+// Order is a customer's placed order. Orders are never deleted.
 type Order struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	UserID    uint           `json:"user_id"`
-	Status    OrderStatus    `json:"status"`
-	Total     float64        `json:"total"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID         uint        `gorm:"primaryKey" json:"id"`
+	UserID     uint        `json:"user_id"`
+	Status     OrderStatus `json:"status"`
+	Currency   string      `json:"currency"` // ISO 4217 code, e.g. "USD"
+	TotalCents int64       `json:"total_cents"`
+	CreatedAt  time.Time   `json:"created_at"`
+	UpdatedAt  time.Time   `json:"updated_at"`
 
 	// Relationships
-	User       User        `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	OrderItems []OrderItem `gorm:"foreignKey:OrderID" json:"order_items,omitempty"`
+	Items []OrderItem `gorm:"foreignKey:OrderID" json:"items,omitempty"`
 }
 
 // OrderStatus is the lifecycle state of an order.
 type OrderStatus string
 
-// Order statuses.
+// Order statuses. These must match the orders_status_check constraint.
 const (
 	OrderStatusPending   OrderStatus = "pending"
-	OrderStatusCompleted OrderStatus = "completed"
-	OrderStatusCancelled OrderStatus = "cancelled"
+	OrderStatusPaid      OrderStatus = "paid"
 	OrderStatusShipped   OrderStatus = "shipped"
-	OrderStatusReturned  OrderStatus = "returned"
-	OrderStatusFailed    OrderStatus = "Delivery Failed"
+	OrderStatusDelivered OrderStatus = "delivered"
+	OrderStatusCancelled OrderStatus = "cancelled"
+	OrderStatusRefunded  OrderStatus = "refunded"
 )
 
-// OrderItem is one product line in an order, with the price paid at checkout.
+// OrderItem is one product line in an order. Name and price are copied
+// from the product at checkout, so they never change afterwards.
 type OrderItem struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	OrderID   uint           `json:"order_id"`
-	ProductID uint           `json:"product_id"`
-	Quantity  int            `json:"quantity"`
-	Price     float64        `json:"price"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
-
-	// Relationships
-	Order   Order   `gorm:"foreignKey:OrderID" json:"order,omitempty"`
-	Product Product `gorm:"foreignKey:ProductID" json:"product,omitempty"`
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	OrderID        uint      `json:"order_id"`
+	ProductID      uint      `json:"product_id"`
+	ProductName    string    `json:"product_name"`
+	UnitPriceCents int64     `json:"unit_price_cents"`
+	Quantity       int       `json:"quantity"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
-// Cart is a user's shopping cart.
+// Cart is a user's shopping cart. Each user has at most one.
 type Cart struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	UserID    uint           `json:"user_id"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `json:"user_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relationships
-	User      User       `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	CartItems []CartItem `gorm:"foreignKey:CartID" json:"cart_items,omitempty"`
+	Items []CartItem `gorm:"foreignKey:CartID" json:"items,omitempty"`
 }
 
 // CartItem is one product line in a cart.
 type CartItem struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	CartID    uint           `json:"cart_id"`
-	UserID    uint           `json:"user_id"`
-	ProductID uint           `json:"product_id"`
-	Quantity  int            `json:"quantity"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	CartID    uint      `json:"cart_id"`
+	ProductID uint      `json:"product_id"`
+	Quantity  int       `json:"quantity"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relationships
-	User    User    `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	Product Product `gorm:"foreignKey:ProductID" json:"product,omitempty"`
+	Product *Product `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 }
