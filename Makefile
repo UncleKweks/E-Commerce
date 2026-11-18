@@ -4,7 +4,7 @@ DB_URL = postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?s
 COMPOSE = docker compose --env-file .env -f docker/docker-compose.yml
 MIGRATE = migrate -path db/migrations -database "$(DB_URL)"
 
-.PHONY: help build run dev lint migrate-up migrate-down migrate-version migrate-create docker-up docker-down
+.PHONY: help build run dev lint test migrate-up migrate-down migrate-version migrate-create docker-up docker-down
 
 help:
 	@echo Makefile commands:
@@ -12,6 +12,7 @@ help:
 	@echo   run                      - Build and run the application
 	@echo   dev                      - Run with go run
 	@echo   lint                     - Run golangci-lint on the codebase
+	@echo   test                     - Run all tests
 	@echo   migrate-up               - Apply all pending migrations
 	@echo   migrate-down             - Roll back the most recent migration
 	@echo   migrate-version          - Show the current migration version
@@ -30,6 +31,9 @@ dev:
 
 lint:
 	golangci-lint run ./...
+
+test:
+	go test ./...
 
 migrate-up:
 	@$(MIGRATE) up

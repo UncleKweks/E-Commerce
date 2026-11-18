@@ -7,7 +7,7 @@ Read each lesson with the code open next to it. Every lesson ends with questions
 | Stage | Lesson | What you'll understand |
 | --- | --- | --- |
 | 1 | [Database foundations](01-database-foundations.md) | Tables, keys, constraints, migrations, storing money, connection pools |
-| 2 | Authentication | Password hashing, JWTs, refresh tokens, roles, the HTTP layer |
+| 2 | [Authentication](02-authentication.md) | Password hashing, JWTs, refresh tokens, roles, the HTTP layer |
 | 3 | Products and categories | REST design, validation, pagination, filtering, admin-only routes |
 | 4 | Cart | Upserts, ownership checks, keeping the cart in sync with stock |
 | 5 | Checkout and orders | Transactions, row locking, overselling, idempotency, order states |

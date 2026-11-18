@@ -83,7 +83,27 @@ You'll use exactly this in Stage 2.
 
 ## 3. Money: never use floats
 
-The tutorial's models stored prices as `float64`. **This is the single most common e-commerce bug.** Run this:
+The tutorial's models stored prices as `float64` (a decimal number like `19.99`). **This is the most common e-commerce bug.**
+
+### The problem in one sentence
+
+Computers can't store most decimal amounts exactly, so they store something very slightly off, and money maths built on "very slightly off" gives wrong totals.
+
+### Why can't computers store 0.10?
+
+Think about writing 1/3 as a decimal: `0.3333333...`. The 3s go on forever, so at some point you have to stop and accept a number that's *almost* 1/3.
+
+Computers have the same problem, just with different numbers. They store everything in **binary**, which means building every number out of halves, quarters, eighths, sixteenths and so on.
+
+- `0.5` is one half, so it's stored exactly.
+- `0.25` is one quarter, so it's stored exactly.
+- `0.10` can't be made from halves, quarters and eighths, no matter how many you add. Like 1/3 in decimal, it goes on forever, so the computer stores the closest thing it can: about `0.1000000000000000055`.
+
+That tiny error is invisible on its own. It shows up when you start adding.
+
+### See it happen
+
+A customer buys ten items that cost 10 cents each. The total should be exactly $1.00:
 
 ```go
 package main
@@ -91,33 +111,49 @@ package main
 import "fmt"
 
 func main() {
-    a, b := 0.1, 0.2
-    fmt.Println(a + b)       // 0.30000000000000004
-    fmt.Println(a+b == 0.3)  // false
-
     var total float64
     for i := 0; i < 10; i++ {
-        total += 0.10 // ten items at 10 cents
+        total += 0.10
     }
-    fmt.Println(total)       // 0.9999999999999999
+    fmt.Println(total)        // 0.9999999999999999, not 1
+    fmt.Println(total == 1.0) // false
 }
 ```
 
-(The variables matter. Writing `fmt.Println(0.1 + 0.2)` directly prints `0.3`, because Go adds literal numbers at compile time with perfect precision. Real prices come from a database or a request, so they're always `float64` variables, and that's where the errors happen.)
+In a real store this means:
 
-Floats store numbers in binary, and most decimal fractions (0.1, 0.2, 0.3) have no exact binary form, just like 1/3 has no exact decimal form (0.333...). The errors are tiny, but they add up across thousands of orders, totals stop matching, and `price == 19.99` comparisons fail at random.
+- A check like "has the customer paid the full total?" says **no** when they have.
+- The total you show and the total you charge are a fraction of a cent apart. Across thousands of orders, your books stop balancing.
+- Rounding in different places (cart, order, receipt) gives different answers, and customers notice.
 
-**The fix used everywhere in professional payment systems:** store money as a whole number of the smallest unit (cents for USD, pence for GBP, kobo for NGN).
+### The fix: count cents, not dollars
+
+Instead of storing `19.99` dollars, store `1999` **cents**. Whole numbers have no fractions to approximate, so the computer stores them exactly, every time.
+
+```go
+price := int64(1999)          // $19.99, stored as 1999 cents
+total := price * 3            // 5997, exactly
+fmt.Printf("$%d.%02d\n", total/100, total%100) // prints $59.97
+```
+
+Think of it like counting coins instead of guessing at an amount. Ten 10-cent coins is 100 cents. No approximation is possible.
+
+The rule:
+
+1. **Store and calculate in cents** (or the smallest unit of your currency: pence for GBP, kobo for NGN).
+2. **Only turn it into "$19.99" when showing it to a person**, at the very last step.
+
+That's why the model field is:
 
 ```go
 PriceCents int64 // 1999 means $19.99
 ```
 
-- Integer maths is exact: `1999 * 3 = 5997`, always.
-- Stripe's API (Stage 6) works in cents too. You'll send `amount: 1999`.
-- You only convert to "$19.99" at the very edge, when displaying it.
+The name `PriceCents` (not `Price`) tells every future reader the unit, so nobody accidentally treats 1999 as $1,999. Stripe works the same way: in Stage 6 you'll send it `amount: 1999` to charge $19.99.
 
-Naming the field `PriceCents` rather than `Price` means nobody can mistake it for dollars.
+### A trap when you try this yourself
+
+If you test with `fmt.Println(0.1 + 0.2)`, Go prints `0.3`, and it looks like there's no problem. That's because when you write the numbers directly in code, Go does the maths ahead of time with perfect precision. Real prices come from a database or a customer's request, so they're always stored in variables, and that's where the errors appear. Use variables when you experiment: `a, b := 0.1, 0.2` then `fmt.Println(a + b)` prints `0.30000000000000004`.
 
 **Currency.** An amount means nothing without its currency: 1999 USD and 1999 JPY are very different amounts. Orders store `currency CHAR(3)` (an ISO code like `USD`) next to the total.
 

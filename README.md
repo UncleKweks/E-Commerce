@@ -2,7 +2,7 @@
 
 A REST API for an e-commerce shop, written in Go. It uses PostgreSQL for data and S3 (LocalStack in development) for file uploads.
 
-> Work in progress, built in stages. Stage 1 (database schema and migrations) is done; the API currently connects to the database and exits. See the [learning path](docs/learn/README.md) for the stages and a lesson on each.
+> Work in progress, built in stages. Stages 1 (database) and 2 (authentication) are done. See the [learning path](docs/learn/README.md) for the stages and a lesson on each.
 
 ## Design highlights
 
@@ -10,6 +10,9 @@ A REST API for an e-commerce shop, written in Go. It uses PostgreSQL for data an
 - **The database enforces the business rules**: stock can't go negative, emails are unique, order statuses are a fixed set.
 - **Order items snapshot the name and price at checkout**, so later product edits never change past orders.
 - **The schema is managed by versioned SQL migrations**, not generated from structs at runtime.
+- **Short-lived access tokens with rotating refresh tokens.** Reusing an old refresh token is treated as theft and ends all of that user's sessions.
+- **Passwords are hashed with bcrypt and refresh tokens with SHA-256**, so a leaked database doesn't leak logins.
+- **Errors never leak internals.** Clients get a stable error code and a safe message; the real error is logged with a request ID.
 
 ## Tech stack
 
@@ -33,7 +36,8 @@ A REST API for an e-commerce shop, written in Go. It uses PostgreSQL for data an
 git clone https://github.com/UncleKweks/E-Commerce.git
 cd E-Commerce
 
-# Create your local config and fill in your own values
+# Create your local config, then set JWT_SECRET in it
+# (generate one with: openssl rand -hex 32)
 cp .env.example .env
 
 # Start Postgres and LocalStack
@@ -42,8 +46,36 @@ make docker-up
 # Create the database tables
 make migrate-up
 
-# Build and run the API
+# Build and run the API on http://localhost:8080
 make run
+```
+
+Press Ctrl+C to stop it. It finishes in-flight requests before exiting.
+
+## API
+
+All endpoints are under `/api/v1`. Successful responses look like `{"data": ...}`, and errors look like `{"error": {"code": "...", "message": "...", "details": {...}}}`.
+
+| Method | Path | Auth | What it does |
+| --- | --- | --- | --- |
+| `GET` | `/health` | | Reports whether the API and database are up |
+| `POST` | `/api/v1/auth/register` | | Create an account; returns tokens |
+| `POST` | `/api/v1/auth/login` | | Log in; returns tokens |
+| `POST` | `/api/v1/auth/refresh` | | Swap a refresh token for a new pair |
+| `POST` | `/api/v1/auth/logout` | | Revoke a refresh token |
+| `GET` | `/api/v1/users/me` | Bearer token | The logged-in user's profile |
+
+Login and register are rate-limited per IP address. Access tokens last 15 minutes; refresh tokens last 7 days and work only once.
+
+Try it with curl:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"ada@example.com","password":"supersecret1","first_name":"Ada","last_name":"Obi"}'
+
+# Use the access_token from the response:
+curl http://localhost:8080/api/v1/users/me -H "Authorization: Bearer <access_token>"
 ```
 
 ## Configuration
@@ -53,9 +85,11 @@ All settings live in `.env` (never committed). `.env.example` lists every variab
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | Port the API listens on |
-| `GIN_MODE` | `debug` or `release` |
+| `GIN_MODE` | `debug`, `release` or `test` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated frontend URLs allowed to call the API from a browser |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE` | PostgreSQL connection. Docker Compose and the Makefile read these too |
-| `JWT_SECRET`, `JWT_EXPIRATION`, `REFRESH_TOKEN_EXPIRATION` | Authentication tokens |
+| `JWT_SECRET` | Required, at least 32 characters. Signs access tokens; anyone who has it can forge logins |
+| `JWT_EXPIRATION`, `REFRESH_TOKEN_EXPIRATION` | Token lifetimes as Go durations, e.g. `15m`, `168h` |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`, `AWS_S3_ENDPOINT` | S3 storage (points at LocalStack locally) |
 | `UPLOAD_PATH`, `MAX_UPLOAD_SIZE` | File upload location and size limit in bytes |
 
@@ -75,6 +109,7 @@ make docker-up
 | `make run` | Build, then run the API |
 | `make dev` | Run with `go run` (no build step) |
 | `make lint` | Run golangci-lint on all packages |
+| `make test` | Run all tests |
 | `make docker-up` | Start Postgres and LocalStack |
 | `make docker-down` | Stop the containers |
 | `make migrate-up` | Apply all pending migrations |
@@ -85,11 +120,18 @@ make docker-up
 ## Project structure
 
 ```text
-cmd/api/            Application entry point
-internal/config/    Loads configuration from the environment
+cmd/api/            Entry point: starts the HTTP server, handles shutdown
+internal/auth/      Password hashing, access tokens (JWT), refresh tokens
+internal/config/    Loads and validates configuration from the environment
 internal/database/  PostgreSQL connection and pool (GORM)
+internal/dto/       JSON request and response shapes
+internal/handlers/  HTTP handlers: read requests, call services, write responses
 internal/logger/    Application logging
+internal/middleware/ Auth, request logging, rate limiting, CORS, body limits
 internal/models/    Go structs that mirror the database tables
+internal/response/  The standard JSON response and error format
+internal/server/    Router: connects URLs to handlers and middleware
+internal/services/  Business logic
 db/migrations/      Numbered SQL migrations that define the schema
 docker/             Docker Compose file for Postgres and LocalStack
 docs/learn/         Stage-by-stage lessons explaining how it's built
