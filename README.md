@@ -100,6 +100,12 @@ docker compose --env-file .env -f docker/docker-compose.yml down -v
 make docker-up
 ```
 
+## Troubleshooting
+
+**`password authentication failed for user "postgres"`**: another PostgreSQL (often one installed in WSL or directly on Windows) is already using port 5432, so the app connects to the wrong database. Set `DB_PORT=5433` in `.env` and run `make docker-up` again. Docker Compose and the Makefile both read that value.
+
+**`MAX_UPLOAD_SIZE must be a whole number`** (or another setting that looks correct in `.env`): something has loaded `.env` into your terminal with the wrong parser, and terminal values take priority over the file. In VS Code, the Python extension's `python.terminal.useEnvFile` setting does this. Turn it off and open a new terminal. Keep comments in `.env` on their own lines, never after a value.
+
 ## Make commands
 
 | Command | What it does |
