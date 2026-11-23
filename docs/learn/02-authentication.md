@@ -333,42 +333,196 @@ CORS only controls **browsers**. It doesn't stop a script or curl from calling y
 
 ## 12. Try it yourself
 
-Start everything:
+Do these in order. Each step builds on the one before. Every step uses a brand-new email, so you can repeat the whole walkthrough as often as you like.
+
+### Step 1: Start the server and open a second terminal
+
+In your **first** terminal (call it Terminal A):
 
 ```powershell
 make docker-up
 make run
 ```
 
-In a **second** terminal (PowerShell):
+Leave it running. Every request you make will show up here as a log line.
+
+Open a **second** terminal (Terminal B; the `+` in VS Code's terminal panel) and paste this setup:
 
 ```powershell
 $api = "http://localhost:8080/api/v1"
 
-# Register
-$body = @{ email = "ada@example.com"; password = "supersecret1"; first_name = "Ada"; last_name = "Obi" } | ConvertTo-Json
-$res = Invoke-RestMethod -Method Post -Uri "$api/auth/register" -ContentType "application/json" -Body $body
-$res.data
-
-# Who am I?
-$token = $res.data.access_token
-Invoke-RestMethod -Uri "$api/users/me" -Headers @{ Authorization = "Bearer $token" }
-
-# Get a new pair of tokens
-$res2 = Invoke-RestMethod -Method Post -Uri "$api/auth/refresh" -ContentType "application/json" -Body (@{ refresh_token = $res.data.refresh_token } | ConvertTo-Json)
-
-# Try the OLD refresh token again: reuse detection kicks in (401),
-# and now even $res2's refresh token is revoked.
-Invoke-RestMethod -Method Post -Uri "$api/auth/refresh" -ContentType "application/json" -Body (@{ refresh_token = $res.data.refresh_token } | ConvertTo-Json)
+# When a request fails, PowerShell prints a big red block. This prints just
+# the status code and the API's error message instead.
+function Show-Error($err) {
+    "Status: $([int]$err.Exception.Response.StatusCode)"
+    $err.ErrorDetails.Message
+}
 ```
 
-Things to try:
+PowerShell remembers variables like `$api` until you close that terminal. If things get confusing, close Terminal B, open a new one and start again from this step.
 
-- Paste `$token` into [jwt.io](https://jwt.io) and read the payload. Notice it isn't secret.
-- Register the same email again and look for the 409.
-- Look in the database: `docker exec -it ecommerce_postgres psql -U postgres -d ecommerce_shop`, then `SELECT email, password_hash FROM users;` and `SELECT token_hash, revoked_at FROM refresh_tokens;`. You'll find no real passwords or tokens anywhere.
-- Watch the terminal running `make run`: each request logs one line with its `request_id`, status and duration.
-- Press Ctrl+C in that terminal and read the shutdown messages.
+### Step 2: Create an account
+
+```powershell
+$email = "ada$(Get-Random)@example.com"
+$body = @{ email = $email; password = "supersecret1"; first_name = "Ada"; last_name = "Obi" } | ConvertTo-Json
+$res = Invoke-RestMethod -Method Post -Uri "$api/auth/register" -ContentType "application/json" -Body $body
+$res.data
+$token = $res.data.access_token
+```
+
+You get back an `access_token`, a `refresh_token`, `expires_in: 900` (15 minutes, in seconds) and your user. Notice there's no password anywhere in the reply.
+
+**In Terminal A:** a new line with `route=/api/v1/auth/register status=201`. That's the request log: method, route, status code, how long it took in milliseconds, and a `request_id`.
+
+### Step 3: Read your token
+
+A JWT's payload is only encoded, not encrypted. Decode it yourself:
+
+```powershell
+$payload = $token.Split('.')[1].Replace('-', '+').Replace('_', '/')
+$payload += '=' * ((4 - $payload.Length % 4) % 4)
+[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload))
+```
+
+You'll see something like:
+
+```json
+{"role":"customer","iss":"ecommerce-api","sub":"11","exp":1795442575,"iat":1795441675}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `role` | Your role, used for permission checks |
+| `iss` | "Issuer": which system made the token |
+| `sub` | "Subject": your user ID |
+| `iat` | "Issued at": when it was made, in seconds since 1 January 1970 (Unix time) |
+| `exp` | "Expires": when it stops working |
+
+Turn `exp` into a normal time. It's 15 minutes after `iat`:
+
+```powershell
+$claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload)) | ConvertFrom-Json
+[DateTimeOffset]::FromUnixTimeSeconds($claims.exp).ToLocalTime()
+```
+
+**Takeaway:** anyone holding a token can read all of this without the secret. The secret is only needed to *create* a valid signature, which is why changing `role` to `admin` doesn't work.
+
+You can also paste `$token` into [jwt.io](https://jwt.io) to see it laid out. That's fine for a practice token on your own machine, but never paste a real production token into a website.
+
+### Step 4: Use the token, then try without it
+
+```powershell
+# With the token: 200 and your profile
+Invoke-RestMethod -Uri "$api/users/me" -Headers @{ Authorization = "Bearer $token" }
+
+# Without it: 401
+try { Invoke-RestMethod -Uri "$api/users/me" } catch { Show-Error $_ }
+
+# With a token you've edited by hand: 401
+try { Invoke-RestMethod -Uri "$api/users/me" -Headers @{ Authorization = "Bearer $($token)x" } } catch { Show-Error $_ }
+```
+
+Adding one character breaks the signature, so the server rejects it.
+
+### Step 5: Register the same email again
+
+```powershell
+try { Invoke-RestMethod -Method Post -Uri "$api/auth/register" -ContentType "application/json" -Body $body } catch { Show-Error $_ }
+```
+
+```text
+Status: 409
+{"error":{"code":"email_taken","message":"An account with this email already exists."}}
+```
+
+409 means "conflict". The database's unique index refused the second account, and the handler turned that into a friendly message.
+
+### Step 6: Log in wrong, two different ways
+
+```powershell
+# Real email, wrong password
+$wrong = @{ email = $email; password = "wrongpass1" } | ConvertTo-Json
+try { Invoke-RestMethod -Method Post -Uri "$api/auth/login" -ContentType "application/json" -Body $wrong } catch { Show-Error $_ }
+
+# Email that doesn't exist
+$nobody = @{ email = "nobody@example.com"; password = "wrongpass1" } | ConvertTo-Json
+try { Invoke-RestMethod -Method Post -Uri "$api/auth/login" -ContentType "application/json" -Body $nobody } catch { Show-Error $_ }
+```
+
+Both give exactly the same 401 and message. An attacker can't tell which emails have accounts.
+
+### Step 7: Refresh, then watch reuse detection
+
+```powershell
+$oldRefresh = $res.data.refresh_token
+
+# Swap the refresh token for a new pair: works (200)
+$res2 = Invoke-RestMethod -Method Post -Uri "$api/auth/refresh" -ContentType "application/json" -Body (@{ refresh_token = $oldRefresh } | ConvertTo-Json)
+"New refresh token: $($res2.data.refresh_token)"
+
+# Pretend you're a thief replaying the OLD token: 401
+try { Invoke-RestMethod -Method Post -Uri "$api/auth/refresh" -ContentType "application/json" -Body (@{ refresh_token = $oldRefresh } | ConvertTo-Json) } catch { Show-Error $_ }
+
+# The NEW token from a moment ago is now dead too: 401
+try { Invoke-RestMethod -Method Post -Uri "$api/auth/refresh" -ContentType "application/json" -Body (@{ refresh_token = $res2.data.refresh_token } | ConvertTo-Json) } catch { Show-Error $_ }
+```
+
+The server saw an already-used token come back, assumed it was stolen, and ended every session for that user. The user just logs in again.
+
+### Step 8: Look inside the database
+
+Open a database shell (press Enter after it connects):
+
+```powershell
+docker exec -it ecommerce_postgres psql -U postgres -d ecommerce_shop
+```
+
+The prompt changes to `ecommerce_shop=#`. Type each query, then Enter (the `;` at the end matters):
+
+```sql
+SELECT id, email, left(password_hash, 30) AS password_hash, role FROM users ORDER BY id DESC LIMIT 3;
+```
+
+Every `password_hash` starts with `$2a$12$`: that's bcrypt (`2a`) with cost 12. No real passwords anywhere.
+
+```sql
+SELECT id, user_id, left(token_hash, 20) AS token_hash, created_at, revoked_at
+FROM refresh_tokens ORDER BY id DESC LIMIT 5;
+```
+
+These are SHA-256 hashes, not the tokens you received. The tokens from step 7 all have a `revoked_at` time, a fraction of a second apart. That's reuse detection at work.
+
+Type `\q` and Enter to leave.
+
+### Step 9: Read the request logs
+
+Look at Terminal A. Each request produced one line, for example:
+
+```text
+WRN request duration_ms=1.2 ip=::1 method=POST request_id=9be07baa56e9062c route=/api/v1/auth/login status=401
+```
+
+- `INF` lines are successes, `WRN` lines are 4xx (the client's mistake), `ERR` lines are 5xx (our fault).
+- No passwords or tokens appear in the logs, even for login requests.
+- Every response also carries this ID in its `X-Request-ID` header. See it with:
+
+  ```powershell
+  (Invoke-WebRequest -Uri "http://localhost:8080/health" -UseBasicParsing).Headers["X-Request-ID"]
+  ```
+
+  Then find that ID in Terminal A.
+
+### Step 10: Stop the server gracefully
+
+Click into Terminal A and press **Ctrl+C**. You should see:
+
+```text
+INF Shutting down: finishing in-flight requests
+INF Server stopped
+```
+
+The server stopped accepting new requests and gave any in-progress ones up to 10 seconds to finish. `make` may then print a line like `make: *** [Makefile:27: run] Error` because the program was interrupted. That's expected and harmless.
 
 ---
 

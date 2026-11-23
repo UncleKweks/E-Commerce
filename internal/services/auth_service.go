@@ -207,11 +207,14 @@ func (s *AuthService) issueTokens(db *gorm.DB, user *models.User) (*dto.TokenRes
 }
 
 func (s *AuthService) revokeAllForTokenOwner(ctx context.Context, refreshToken string) error {
+	// time.Now(), not SQL now(): every timestamp in this table comes from the
+	// app's clock. The database server's clock can differ slightly, and mixing
+	// the two can make a token look revoked before it was created.
 	err := s.db.WithContext(ctx).Exec(`
-		UPDATE refresh_tokens SET revoked_at = now()
+		UPDATE refresh_tokens SET revoked_at = ?
 		WHERE revoked_at IS NULL
 		  AND user_id = (SELECT user_id FROM refresh_tokens WHERE token_hash = ?)`,
-		auth.HashRefreshToken(refreshToken)).Error
+		time.Now(), auth.HashRefreshToken(refreshToken)).Error
 	if err != nil {
 		return fmt.Errorf("revoke all sessions: %w", err)
 	}
