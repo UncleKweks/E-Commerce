@@ -26,6 +26,26 @@ func OK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, gin.H{"data": data})
 }
 
+// PageMeta describes one page of a longer list, so clients can show
+// "page 2 of 5" and know when to stop asking for more.
+type PageMeta struct {
+	Page       int   `json:"page"`
+	PageSize   int   `json:"page_size"`
+	Total      int64 `json:"total"`
+	TotalPages int   `json:"total_pages"`
+}
+
+// NewPageMeta works out TotalPages from the total row count.
+func NewPageMeta(page, pageSize int, total int64) PageMeta {
+	pages := int((total + int64(pageSize) - 1) / int64(pageSize)) // round up
+	return PageMeta{Page: page, PageSize: pageSize, Total: total, TotalPages: pages}
+}
+
+// Paged replies 200 with one page of a list: {"data": [...], "meta": {...}}.
+func Paged(c *gin.Context, data any, meta PageMeta) {
+	c.JSON(http.StatusOK, gin.H{"data": data, "meta": meta})
+}
+
 // Created replies 201 with the newly created resource.
 func Created(c *gin.Context, data any) {
 	c.JSON(http.StatusCreated, gin.H{"data": data})

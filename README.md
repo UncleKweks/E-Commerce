@@ -2,7 +2,7 @@
 
 A REST API for an e-commerce shop, written in Go. It uses PostgreSQL for data and S3 (LocalStack in development) for file uploads.
 
-> Work in progress, built in stages. Stages 1 (database) and 2 (authentication) are done. See the [learning path](docs/learn/README.md) for the stages and a lesson on each.
+> Work in progress, built in stages. Stages 1 (database), 2 (authentication) and 3 (products and categories) are done. See the [learning path](docs/learn/README.md) for the stages and a lesson on each.
 
 ## Design highlights
 
@@ -13,6 +13,10 @@ A REST API for an e-commerce shop, written in Go. It uses PostgreSQL for data an
 - **Short-lived access tokens with rotating refresh tokens.** Reusing an old refresh token is treated as theft and ends all of that user's sessions.
 - **Passwords are hashed with bcrypt and refresh tokens with SHA-256**, so a leaked database doesn't leak logins.
 - **Errors never leak internals.** Clients get a stable error code and a safe message; the real error is logged with a request ID.
+- **Admin routes are protected as a group** (401 if not logged in, 403 if not an admin), and no endpoint can grant the admin role.
+- **Paginated, filterable product lists** with a capped page size, stable sort order, whitelisted sort options and parameterized queries (no SQL injection).
+- **Partial updates that handle zero correctly**: `PATCH {"stock": 0}` really sets stock to 0.
+- **Row locks prevent races**, e.g. deleting a category while someone adds a product to it.
 
 ## Tech stack
 
@@ -46,6 +50,9 @@ make docker-up
 # Create the database tables
 make migrate-up
 
+# Optional: load sample categories and products
+make seed
+
 # Build and run the API on http://localhost:8080
 make run
 ```
@@ -64,8 +71,24 @@ All endpoints are under `/api/v1`. Successful responses look like `{"data": ...}
 | `POST` | `/api/v1/auth/refresh` | | Swap a refresh token for a new pair |
 | `POST` | `/api/v1/auth/logout` | | Revoke a refresh token |
 | `GET` | `/api/v1/users/me` | Bearer token | The logged-in user's profile |
+| `GET` | `/api/v1/categories` | | List active categories |
+| `GET` | `/api/v1/products` | | List active products (paginated, see filters below) |
+| `GET` | `/api/v1/products/{id}` | | One active product |
+| `GET` | `/api/v1/admin/categories` | Admin | List all categories, including hidden ones |
+| `POST` | `/api/v1/admin/categories` | Admin | Create a category |
+| `PATCH` | `/api/v1/admin/categories/{id}` | Admin | Change some fields of a category |
+| `DELETE` | `/api/v1/admin/categories/{id}` | Admin | Delete a category (only if it has no products) |
+| `GET` | `/api/v1/admin/products` | Admin | List all products, including hidden ones |
+| `GET` | `/api/v1/admin/products/{id}` | Admin | One product, even if hidden |
+| `POST` | `/api/v1/admin/products` | Admin | Create a product |
+| `PATCH` | `/api/v1/admin/products/{id}` | Admin | Change some fields of a product |
+| `DELETE` | `/api/v1/admin/products/{id}` | Admin | Delete a product |
 
 Login and register are rate-limited per IP address. Access tokens last 15 minutes; refresh tokens last 7 days and work only once.
+
+**Product list filters** (all optional): `page` (default 1), `page_size` (default 20, max 100), `category_id`, `q` (search in the name), `min_price` and `max_price` (in cents), `in_stock=true`, and `sort` (`newest`, `price_asc`, `price_desc` or `name`). List replies include `meta` with `page`, `page_size`, `total` and `total_pages`.
+
+**Becoming an admin:** register normally, then run `make admin email=you@example.com` and log in again. There is deliberately no API endpoint for this.
 
 Try it with curl:
 
@@ -122,11 +145,14 @@ make docker-up
 | `make migrate-down` | Roll back the most recent migration |
 | `make migrate-version` | Show which migration the database is on |
 | `make migrate-create name=NAME` | Create a new numbered pair of migration files |
+| `make seed` | Load sample categories and products (safe to repeat) |
+| `make admin email=EMAIL` | Make an existing user an admin |
 
 ## Project structure
 
 ```text
 cmd/api/            Entry point: starts the HTTP server, handles shutdown
+cmd/admin/          Command that turns a user into an admin
 internal/auth/      Password hashing, access tokens (JWT), refresh tokens
 internal/config/    Loads and validates configuration from the environment
 internal/database/  PostgreSQL connection and pool (GORM)
@@ -139,6 +165,7 @@ internal/response/  The standard JSON response and error format
 internal/server/    Router: connects URLs to handlers and middleware
 internal/services/  Business logic
 db/migrations/      Numbered SQL migrations that define the schema
+db/seed.sql         Sample data for local development
 docker/             Docker Compose file for Postgres and LocalStack
 docs/learn/         Stage-by-stage lessons explaining how it's built
 .env.example        Template for local configuration

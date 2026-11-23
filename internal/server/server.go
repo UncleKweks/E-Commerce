@@ -11,6 +11,7 @@ import (
 	"github.com/UncleKweks/E-Commerce/internal/config"
 	"github.com/UncleKweks/E-Commerce/internal/handlers"
 	"github.com/UncleKweks/E-Commerce/internal/middleware"
+	"github.com/UncleKweks/E-Commerce/internal/models"
 	"github.com/UncleKweks/E-Commerce/internal/response"
 	"github.com/UncleKweks/E-Commerce/internal/services"
 	"github.com/gin-gonic/gin"
@@ -37,7 +38,7 @@ func NewServer(cfg *config.Config, db *gorm.DB, logger *zerolog.Logger) *Server 
 // SetupRoutes builds the router with all middleware and routes.
 func (s *Server) SetupRoutes() *gin.Engine {
 	gin.SetMode(s.config.Server.GinMode)
-	handlers.UseJSONFieldNames()
+	handlers.SetupValidator()
 
 	router := gin.New()
 	// Don't trust X-Forwarded-For from anyone. Otherwise a client can send a
@@ -77,6 +78,30 @@ func (s *Server) SetupRoutes() *gin.Engine {
 	protected := api.Group("")
 	protected.Use(middleware.AuthRequired(tokens))
 	protected.GET("/users/me", authHandler.Me)
+
+	catalog := handlers.NewCatalogHandler(services.NewCatalogService(s.db))
+
+	// Public catalog: anyone can browse, no login needed.
+	api.GET("/categories", catalog.ListCategories)
+	api.GET("/products", catalog.ListProducts)
+	api.GET("/products/:id", catalog.GetProduct)
+
+	// Admin routes. AuthRequired runs first (who are you? else 401), then
+	// RequireRole (are you an admin? else 403). Putting both on the group
+	// means a new admin route can't be added without protection by mistake.
+	admin := api.Group("/admin")
+	admin.Use(middleware.AuthRequired(tokens), middleware.RequireRole(string(models.UserRoleAdmin)))
+
+	admin.GET("/categories", catalog.AdminListCategories)
+	admin.POST("/categories", catalog.CreateCategory)
+	admin.PATCH("/categories/:id", catalog.UpdateCategory)
+	admin.DELETE("/categories/:id", catalog.DeleteCategory)
+
+	admin.GET("/products", catalog.AdminListProducts)
+	admin.GET("/products/:id", catalog.AdminGetProduct)
+	admin.POST("/products", catalog.CreateProduct)
+	admin.PATCH("/products/:id", catalog.UpdateProduct)
+	admin.DELETE("/products/:id", catalog.DeleteProduct)
 
 	return router
 }

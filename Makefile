@@ -4,7 +4,7 @@ DB_URL = postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?s
 COMPOSE = docker compose --env-file .env -f docker/docker-compose.yml
 MIGRATE = migrate -path db/migrations -database "$(DB_URL)"
 
-.PHONY: help build run dev lint test migrate-up migrate-down migrate-version migrate-create docker-up docker-down
+.PHONY: help build run dev lint test migrate-up migrate-down migrate-version migrate-create seed admin docker-up docker-down
 
 help:
 	@echo Makefile commands:
@@ -17,6 +17,8 @@ help:
 	@echo   migrate-down             - Roll back the most recent migration
 	@echo   migrate-version          - Show the current migration version
 	@echo   migrate-create name=NAME - Create a new pair of migration files
+	@echo   seed                     - Load sample categories and products
+	@echo   admin email=EMAIL        - Make an existing user an admin
 	@echo   docker-up                - Start Postgres and LocalStack
 	@echo   docker-down              - Stop the containers
 
@@ -47,6 +49,13 @@ migrate-version:
 
 migrate-create:
 	migrate create -ext sql -dir db/migrations -seq $(name)
+
+# Runs psql inside the Postgres container, so you don't need psql installed.
+seed:
+	docker exec -i ecommerce_postgres psql -q -v ON_ERROR_STOP=1 -U $(DB_USER) -d $(DB_NAME) < db/seed.sql
+
+admin:
+	go run ./cmd/admin -email=$(email)
 
 docker-up:
 	$(COMPOSE) up -d
