@@ -61,7 +61,7 @@ Press Ctrl+C to stop it. It finishes in-flight requests before exiting.
 
 ### Browser playground
 
-While the API is running in debug mode, open **http://localhost:8080/** for a small web page that uses the API like a real shop would: browse and filter products, register and log in, and manage the catalog as an admin. A side panel shows every request the page sends and every response it gets back, with the same request ID you'll see in the server's log. It's a learning tool, so it isn't served when `GIN_MODE=release`.
+While the API is running in debug mode, open **<http://localhost:8080/>** for a small web page that uses the API like a real shop would: browse and filter products, register and log in, and manage the catalog as an admin. A side panel shows every request the page sends and every response it gets back, with the same request ID you'll see in the server's log. It's a learning tool, so it isn't served when `GIN_MODE=release`.
 
 ## API
 

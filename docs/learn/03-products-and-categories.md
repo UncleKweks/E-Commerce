@@ -574,7 +574,7 @@ EXPLAIN SELECT * FROM products WHERE is_active AND category_id = 3 ORDER BY crea
 
 ## 13. The same thing, in a browser
 
-Open **http://localhost:8080/** while the server runs. It's a small shop page ([web/index.html](../../web/index.html)) that calls the same API, with a **Behind the scenes** panel on the right showing every request and response. Things to try:
+Open **<http://localhost:8080/>** while the server runs. It's a small shop page ([web/index.html](../../web/index.html)) that calls the same API, with a **Behind the scenes** panel on the right showing every request and response. Things to try:
 
 - **Shop tab:** search, filter and sort, and watch the URL change under the filters. Choose "500 (too many)" per page to see the API's 422.
 - **Account tab:** register, log in with a wrong password, register the same email twice. Press "Refresh tokens", then "Replay the old refresh token" to watch reuse detection end your sessions.
