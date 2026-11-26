@@ -81,7 +81,7 @@ This runs [cmd/admin/main.go](../../cmd/admin/main.go), which updates the user's
 
 ### Why you must log in again after becoming an admin
 
-Your role is written **inside your access token** when you log in (lesson 2). The server trusts the token without checking the database. So after `make admin`, your old token still says `"role": "customer"` until you log in again and get a new one.
+Your role is written **inside your access token** when you log in (lesson 2). The server trusts the token without checking the database. So after `make admin`, your old token still says `"role": "customer"` until you get a new one. Logging in again does that. So does a refresh, because `Refresh` reads the user from the database before issuing the new pair.
 
 The flip side matters more: if you *remove* someone's admin role, their current token keeps working as admin for up to 15 minutes. That's one more reason access tokens are short.
 
