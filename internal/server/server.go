@@ -14,6 +14,7 @@ import (
 	"github.com/UncleKweks/E-Commerce/internal/models"
 	"github.com/UncleKweks/E-Commerce/internal/response"
 	"github.com/UncleKweks/E-Commerce/internal/services"
+	"github.com/UncleKweks/E-Commerce/web"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -55,6 +56,15 @@ func (s *Server) SetupRoutes() *gin.Engine {
 		response.Error(c, http.StatusNotFound, "not_found", "This endpoint does not exist.")
 	})
 	router.GET("/health", s.healthCheckHandler)
+
+	// The browser playground at http://localhost:8080/ is a learning tool, so
+	// it's left out in release mode. A real shop's website would be its own
+	// project, deployed separately, calling this API like any other client.
+	if s.config.Server.GinMode != gin.ReleaseMode {
+		router.GET("/", func(c *gin.Context) {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", web.IndexHTML)
+		})
+	}
 
 	tokens := auth.NewTokenManager(s.config.JWT.Secret, s.config.JWT.ExpiresIn)
 	authService := services.NewAuthService(s.db, tokens, s.config.JWT.RefreshTokenExpires)

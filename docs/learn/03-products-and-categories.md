@@ -572,6 +572,21 @@ EXPLAIN SELECT * FROM products WHERE is_active AND category_id = 3 ORDER BY crea
 
 ---
 
+## 13. The same thing, in a browser
+
+Open **http://localhost:8080/** while the server runs. It's a small shop page ([web/index.html](../../web/index.html)) that calls the same API, with a **Behind the scenes** panel on the right showing every request and response. Things to try:
+
+- **Shop tab:** search, filter and sort, and watch the URL change under the filters. Choose "500 (too many)" per page to see the API's 422.
+- **Account tab:** register, log in with a wrong password, register the same email twice. Press "Refresh tokens", then "Replay the old refresh token" to watch reuse detection end your sessions.
+- **Admin tab as a customer:** you'll see the 403. Run the `make admin` command it shows, press "Refresh tokens", and the Admin tab opens up.
+- **Edit a product:** the box at the bottom of the form shows the exact request. Change only the stock and see that the `PATCH` sends only `stock`.
+- **Break things:** a price of `-5` (422), a price of `abc` (400), an existing SKU (409). Each error appears next to the field it belongs to.
+- **Look at the terminal:** every request in the panel has a request ID, and the same ID is on the matching log line in Terminal A.
+
+Read the page's JavaScript too. It's plain JavaScript with comments, and shows the frontend side of things the lessons talk about: turning cents into dollars only for display, never refreshing tokens twice at once, and inserting product names as text so a malicious name can't run code (XSS).
+
+---
+
 ## Check yourself
 
 1. Why does this API use `PATCH /admin/products/42` instead of `POST /updateProduct?id=42`?
