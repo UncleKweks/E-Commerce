@@ -63,6 +63,12 @@ func Error(c *gin.Context, status int, code, message string) {
 	c.AbortWithStatusJSON(status, gin.H{"error": errorBody{Code: code, Message: message}})
 }
 
+// ErrorWithDetails is Error plus machine-readable details, e.g.
+// {"max": "5"}, so the frontend can act on the numbers, not just show text.
+func ErrorWithDetails(c *gin.Context, status int, code, message string, details map[string]string) {
+	c.AbortWithStatusJSON(status, gin.H{"error": errorBody{Code: code, Message: message, Details: details}})
+}
+
 // ValidationError replies 422 with a message for each invalid field.
 func ValidationError(c *gin.Context, details map[string]string) {
 	c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": errorBody{

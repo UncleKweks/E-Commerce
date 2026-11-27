@@ -130,7 +130,12 @@ func internalError(c *gin.Context, err error) {
 // On failure it writes a 404 (a non-numeric ID can't match anything) and
 // returns false.
 func idParam(c *gin.Context) (uint, bool) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	return uintParam(c, "id")
+}
+
+// uintParam is idParam for a URL parameter with another name.
+func uintParam(c *gin.Context, name string) (uint, bool) {
+	id, err := strconv.ParseUint(c.Param(name), 10, 64)
 	if err != nil || id == 0 {
 		response.Error(c, http.StatusNotFound, "not_found", "Not found.")
 		return 0, false

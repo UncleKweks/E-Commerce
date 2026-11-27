@@ -107,6 +107,14 @@
   .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
   .modal-head button { border: none; font-size: 1.3rem; line-height: 1; }
 
+  .cart-line { display: grid; grid-template-columns: minmax(0, 1fr) auto 90px auto; gap: .75rem; align-items: center; padding: .6rem 0; border-bottom: 1px solid var(--line); }
+  .cart-line.problem .cart-info strong { color: var(--bad); }
+  .cart-info { display: flex; flex-direction: column; gap: .1rem; }
+  .cart-qty { display: flex; gap: .3rem; align-items: center; }
+  .cart-sum { text-align: right; font-weight: 600; }
+  .cart-total { display: flex; justify-content: space-between; font-size: 1.05rem; }
+  @media (max-width: 600px) { .cart-line { grid-template-columns: minmax(0, 1fr) auto; } }
+
   #toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: .6rem 1rem; border-radius: 8px; max-width: min(560px, calc(100% - 2rem)); z-index: 20; }
 </style>
 </head>
@@ -116,6 +124,7 @@
   <div class="brand">Shop Playground</div>
   <nav class="tabs">
     <button data-tab="shop">Shop</button>
+    <button data-tab="cart">Cart</button>
     <button data-tab="account">Account</button>
     <button data-tab="admin">Admin</button>
   </nav>
@@ -158,6 +167,9 @@
         <button id="next">Next &rarr;</button>
       </div>
     </section>
+
+    <!-- ===== CART ===== -->
+    <section id="tab-cart" hidden></section>
 
     <!-- ===== ACCOUNT ===== -->
     <section id="tab-account" hidden></section>
@@ -382,6 +394,7 @@ function setSession(tokens) {
     state.claims = decodeJwt(tokens.access_token);
   } else {
     state.access = state.refresh = state.user = state.claims = state.oldRefresh = null;
+    setCart(null);
   }
   store.set('refresh', state.refresh);
   renderWhoami();
@@ -500,6 +513,7 @@ function showTab(name) {
   for (const sec of document.querySelectorAll('main > section')) sec.hidden = sec.id !== 'tab-' + name;
   store.set('tab', name);
   if (name === 'admin') loadAdmin();
+  if (name === 'cart') loadCart();
 }
 for (const btn of document.querySelectorAll('.tabs button')) btn.addEventListener('click', () => showTab(btn.dataset.tab));
 
@@ -572,13 +586,90 @@ async function openProduct(id) {
     stockBadge(p.stock),
     p.description && h('p', { style: 'margin:0' }, p.description),
     h('div', { class: 'muted' }, 'SKU: ', h('code', {}, p.sku)),
-    h('div', { class: 'actions' }, h('button', { class: 'primary', disabled: true, title: 'Coming in Stage 4' }, 'Add to cart (Stage 4)')),
+    (() => {
+      const qty = h('input', { type: 'number', value: 1, min: 1, style: 'width:70px', 'aria-label': 'Quantity' });
+      return h('div', { class: 'actions' }, qty,
+        h('button', { class: 'primary', onclick: () => addToCart(p.id, qty.value) }, 'Add to cart'));
+    })(),
     h('details', {}, h('summary', {}, 'The JSON the API sent for this page'), h('pre', {}, JSON.stringify(p, null, 2)))));
 }
 
 $('#filters').addEventListener('submit', e => { e.preventDefault(); state.shopPage = 1; loadProducts(); });
 $('#prev').addEventListener('click', () => { state.shopPage--; loadProducts(); });
 $('#next').addEventListener('click', () => { state.shopPage++; loadProducts(); });
+
+/* =====================================================================
+   Cart
+   ===================================================================== */
+
+// The cart as the API last described it. Every cart endpoint replies with
+// the whole updated cart, so the page never has to work out totals itself:
+// one source of truth, and it's the server.
+let cart = null;
+
+function setCart(c) {
+  cart = c;
+  const tab = document.querySelector('.tabs button[data-tab=cart]');
+  tab.textContent = c && c.item_count ? `Cart (${c.item_count})` : 'Cart';
+  if (!$('#tab-cart').hidden) renderCart();
+}
+
+async function loadCart() {
+  if (!state.access) { setCart(null); renderCart(); return; }
+  const r = await api('GET', '/cart');
+  if (r.ok) setCart(r.data);
+}
+
+function renderCart() {
+  const root = $('#tab-cart');
+  if (!state.access) {
+    root.replaceChildren(h('p', { class: 'intro' },
+      'The cart belongs to your account, so log in first (Account tab). Because it\'s stored on the server, it follows you to any device.'));
+    return;
+  }
+  if (!cart) { root.replaceChildren(h('p', { class: 'muted' }, 'Loading…')); return; }
+  root.replaceChildren(
+    h('p', { class: 'intro' }, 'Prices and stock are checked again every time the cart loads. As an admin, try hiding a product or lowering its stock, then come back here.'),
+    cart.items.length === 0
+      ? h('div', { class: 'box muted' }, 'Your cart is empty. Add something from the Shop tab.')
+      : h('div', { class: 'box stack' },
+        cart.items.map(cartLine),
+        h('div', { class: 'cart-total' },
+          h('span', {}, `${cart.item_count} item${cart.item_count === 1 ? '' : 's'}`),
+          h('span', {}, 'Subtotal: ', h('b', {}, money(cart.subtotal_cents)))),
+        !cart.can_checkout && h('div', { class: 'error' }, 'Some items need attention before you can check out. They aren\'t counted in the subtotal.'),
+        h('div', { class: 'actions' },
+          h('button', { class: 'danger', onclick: clearCart }, 'Empty cart'),
+          h('button', { class: 'primary', disabled: true, title: 'Coming in Stage 5' }, 'Checkout (Stage 5)'))));
+}
+
+function cartLine(item) {
+  const qty = h('input', { type: 'number', value: item.quantity, min: 1, style: 'width:70px', 'aria-label': 'Quantity' });
+  return h('div', { class: 'cart-line' + (item.status === 'ok' ? '' : ' problem') },
+    h('div', { class: 'cart-info' },
+      h('strong', {}, item.name),
+      h('span', { class: 'muted' }, `${money(item.unit_price_cents)} each · `, h('code', {}, item.sku)),
+      item.message && h('span', { class: 'field-error' }, item.message)),
+    h('div', { class: 'cart-qty' }, qty,
+      h('button', { class: 'small', disabled: item.status === 'unavailable', onclick: () => setQuantity(item, qty.value) }, 'Update')),
+    h('div', { class: 'cart-sum' }, item.status === 'ok' ? money(item.line_total_cents) : h('span', { class: 'muted' }, '-')),
+    h('button', { class: 'small danger', onclick: () => removeItem(item) }, 'Remove'));
+}
+
+async function cartCall(method, path, body) {
+  const r = await api(method, path, body);
+  if (r.ok) setCart(r.data);
+  else toast(r.status === 401 ? 'Log in first (Account tab) to use the cart.' : `${r.status}: ${r.error?.message}`, 6000);
+  return r;
+}
+const setQuantity = (item, value) => cartCall('PUT', '/cart/items/' + item.product_id, { quantity: toInt(value) });
+const removeItem = item => cartCall('DELETE', '/cart/items/' + item.product_id);
+function clearCart() { if (confirm('Empty your cart?')) cartCall('DELETE', '/cart'); }
+async function addToCart(productId, qtyText) {
+  // A blank quantity is left out of the JSON, and the API then adds 1.
+  const r = await cartCall('POST', '/cart/items', { product_id: productId, quantity: toInt(qtyText) });
+  if (r.ok) toast('Added to cart');
+}
 
 /* =====================================================================
    Account
@@ -597,6 +688,7 @@ function loginForm() {
     const r = await api('POST', '/auth/login', { email: val(form, 'email'), password: val(form, 'password') }, { auth: false });
     if (!r.ok) return showFormErrors(form, r);
     setSession(r.data);
+    loadCart();
     toast('Logged in');
   });
   return form;
@@ -624,6 +716,7 @@ function registerForm() {
     const r = await api('POST', '/auth/register', body, { auth: false });
     if (!r.ok) return showFormErrors(form, r);
     setSession(r.data);
+    loadCart();
     toast('Account created. You are logged in.');
   });
   return form;
@@ -867,6 +960,7 @@ $('#admin-next').addEventListener('click', () => { state.adminPage++; loadAdminP
   // fresh access token (the old one was only in memory, so it's gone).
   if (state.refresh) await refreshTokens();
   showTab(store.get('tab') || 'shop');
+  if (state.access && store.get('tab') !== 'cart') loadCart(); // for the item count on the tab
   loadShopCategories();
   loadProducts();
 })();

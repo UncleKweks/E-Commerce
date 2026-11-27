@@ -2,7 +2,7 @@
 
 A REST API for an e-commerce shop, written in Go. It uses PostgreSQL for data and S3 (LocalStack in development) for file uploads.
 
-> Work in progress, built in stages. Stages 1 (database), 2 (authentication) and 3 (products and categories) are done. See the [learning path](docs/learn/README.md) for the stages and a lesson on each.
+> Work in progress, built in stages. Stages 1 (database), 2 (authentication), 3 (products and categories) and 4 (cart) are done. See the [learning path](docs/learn/README.md) for the stages and a lesson on each.
 
 ## Design highlights
 
@@ -17,6 +17,9 @@ A REST API for an e-commerce shop, written in Go. It uses PostgreSQL for data an
 - **Paginated, filterable product lists** with a capped page size, stable sort order, whitelisted sort options and parameterized queries (no SQL injection).
 - **Partial updates that handle zero correctly**: `PATCH {"stock": 0}` really sets stock to 0.
 - **Row locks prevent races**, e.g. deleting a category while someone adds a product to it.
+- **Race-free cart updates**: adding to the cart is a single atomic upsert, so double-clicks and parallel requests never create duplicate lines or lose quantities.
+- **No IDOR**: cart URLs contain no cart ID; the cart always comes from the logged-in user's token.
+- **The cart is checked against the live catalog** on every read, flagging items that sold out, dropped in stock or were taken off sale.
 
 ## Tech stack
 
@@ -75,6 +78,11 @@ All endpoints are under `/api/v1`. Successful responses look like `{"data": ...}
 | `POST` | `/api/v1/auth/refresh` | | Swap a refresh token for a new pair |
 | `POST` | `/api/v1/auth/logout` | | Revoke a refresh token |
 | `GET` | `/api/v1/users/me` | Bearer token | The logged-in user's profile |
+| `GET` | `/api/v1/cart` | Bearer token | Your cart, with today's prices and a status per item |
+| `POST` | `/api/v1/cart/items` | Bearer token | Add a product (`{"product_id": 11, "quantity": 2}`; quantity defaults to 1) |
+| `PUT` | `/api/v1/cart/items/{product_id}` | Bearer token | Set a product's quantity (`{"quantity": 3}`) |
+| `DELETE` | `/api/v1/cart/items/{product_id}` | Bearer token | Remove a product |
+| `DELETE` | `/api/v1/cart` | Bearer token | Empty the cart |
 | `GET` | `/api/v1/categories` | | List active categories |
 | `GET` | `/api/v1/products` | | List active products (paginated, see filters below) |
 | `GET` | `/api/v1/products/{id}` | | One active product |
@@ -91,6 +99,8 @@ All endpoints are under `/api/v1`. Successful responses look like `{"data": ...}
 Login and register are rate-limited per IP address. Access tokens last 15 minutes; refresh tokens last 7 days and work only once.
 
 **Product list filters** (all optional): `page` (default 1), `page_size` (default 20, max 100), `category_id`, `q` (search in the name), `min_price` and `max_price` (in cents), `in_stock=true`, and `sort` (`newest`, `price_asc`, `price_desc` or `name`). List replies include `meta` with `page`, `page_size`, `total` and `total_pages`.
+
+**The cart** holds at most 99 of each product, and never more than is in stock. Every cart endpoint replies with the whole updated cart. Each item has a `status` (`ok`, `not_enough_stock`, `out_of_stock` or `unavailable`); only `ok` items count towards `subtotal_cents`, and `can_checkout` is false while any item has a problem. The cart does not reserve stock; that happens at checkout.
 
 **Becoming an admin:** register normally, then run `make admin email=you@example.com` and log in again. There is deliberately no API endpoint for this.
 

@@ -89,6 +89,15 @@ func (s *Server) SetupRoutes() *gin.Engine {
 	protected.Use(middleware.AuthRequired(tokens))
 	protected.GET("/users/me", authHandler.Me)
 
+	// The cart belongs to whoever the token says you are, so there's no
+	// cart ID in any of these URLs.
+	cart := handlers.NewCartHandler(services.NewCartService(s.db))
+	protected.GET("/cart", cart.Get)
+	protected.DELETE("/cart", cart.Clear)
+	protected.POST("/cart/items", cart.AddItem)
+	protected.PUT("/cart/items/:product_id", cart.SetQuantity)
+	protected.DELETE("/cart/items/:product_id", cart.RemoveItem)
+
 	catalog := handlers.NewCatalogHandler(services.NewCatalogService(s.db))
 
 	// Public catalog: anyone can browse, no login needed.
